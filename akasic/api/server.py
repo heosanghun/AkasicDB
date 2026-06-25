@@ -1,11 +1,42 @@
 import time
 import os
+
+# Set Hugging Face cache directory to E: drive due to C: drive space constraints
+os.environ["HF_HOME"] = r"E:\AI\huggingface_cache"
+
 import sqlite3
 import json
+import threading
 from collections import defaultdict
 from flask import Flask, request, jsonify, send_from_directory, Response
 import sys
 import random
+
+try:
+    import torch
+    hf_device = "cuda" if torch.cuda.is_available() else "cpu"
+except ImportError:
+    hf_device = "cpu"
+
+hf_model = None
+hf_tokenizer = None
+
+def load_hf_model():
+    global hf_model, hf_tokenizer
+    if hf_model is None:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        try:
+            model_name = "google/gemma-1.1-2b-it"
+            print(f"Loading Hugging Face Model: {model_name} on {hf_device}...")
+            hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
+        except Exception as e:
+            print(f"Gemma load failed (might need HF token): {e}")
+            model_name = "Qwen/Qwen1.5-1.8B-Chat"
+            print(f"Falling back to {model_name}...")
+            hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
+        print("Model loading complete!")
 
 # Add parent directory to path to import akasic modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -276,10 +307,62 @@ def query():
         "llm_response": f"[10,000+ 엔진 스캔 완료 (속도: {round(t1 - t0, 4)}ms)] RAG+XAI 분석 결과: {chunk_summary} {llm_conclusion}"
     })
 
+# --- Session API Endpoints (Feature 2) ---
+
+@app.route('/api/sessions', methods=['GET'])
+def get_sessions():
+    conn = sqlite3.connect('chat_history.db')
+    c = conn.cursor()
+    c.execute("SELECT id, created_at FROM sessions ORDER BY id DESC")
+    rows = c.fetchall()
+    conn.close()
+    return jsonify([{"id": r[0], "created_at": r[1]} for r in rows])
+
+@app.route('/api/sessions', methods=['POST'])
+def create_session():
+    user = request.json.get("user", "Admin") if request.json else "Admin"
+    conn = sqlite3.connect('chat_history.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO sessions (user) VALUES (?)", (user,))
+    session_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": session_id})
+
+@app.route('/api/sessions/<int:session_id>/messages', methods=['GET'])
+def get_messages(session_id):
+    conn = sqlite3.connect('chat_history.db')
+    c = conn.cursor()
+    c.execute("SELECT id, role, content, graph_data, results FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,))
+    rows = c.fetchall()
+    conn.close()
+    messages = []
+    for r in rows:
+        messages.append({
+            "id": r[0],
+            "role": r[1],
+            "content": r[2],
+            "graph_data": json.loads(r[3]) if r[3] else None,
+            "results": json.loads(r[4]) if r[4] else None
+        })
+    return jsonify(messages)
+
+@app.route('/api/sessions/<int:session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    conn = sqlite3.connect('chat_history.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+    c.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
 @app.route('/api/stream_query', methods=['POST'])
 def stream_query():
     data = request.json
     question = data.get("question", "")
+    session_id = data.get("session_id")
+    model_choice = data.get("model", "mock")
     
     start_nodes = []
     if "3b" in question.lower() or "추가 이송" in question or "extra moves" in question.lower():
@@ -337,42 +420,115 @@ def stream_query():
         })
 
     graph_data = build_subgraph(start_nodes, g_store, depth=1)
-
-    def generate():
-        scan_time = f"{round(t1 - t0, 4)}"
-        prefix = f"[10,000+ 엔진 스캔 완료 (속도: {scan_time}ms)] RAG+XAI 분석 결과: "
+    
+    if model_choice == "gemma":
+        from transformers import TextIteratorStreamer
         
-        # 1. Send Metadata (Graph & Relational)
-        meta_payload = {
-            "type": "metadata",
-            "graph_data": graph_data,
-            "results": final_results,
-            "scan_time": scan_time
-        }
-        yield f"data: {json.dumps(meta_payload)}\n\n"
-        
-        # 2. Stream Prefix
-        for char in prefix:
-            yield f"data: {json.dumps({'type': 'token', 'text': char})}\n\n"
-            time.sleep(0.01)
+        def generate_hf():
+            scan_time = f"{round(t1 - t0, 4)}"
+            prefix = f"[10,000+ 엔진 스캔 완료 (속도: {scan_time}ms)] RAG+XAI 분석 결과 (Hugging Face 추론): "
             
-        # 3. Stream Chunk Evidence
-        words = chunk_summary.split(' ')
-        for word in words:
-            if word:
-                yield f"data: {json.dumps({'type': 'token', 'text': word + ' '})}\n\n"
-                time.sleep(0.02)
+            meta_payload = {
+                "type": "metadata",
+                "graph_data": graph_data,
+                "results": final_results,
+                "scan_time": scan_time
+            }
+            yield f"data: {json.dumps(meta_payload)}\n\n"
+            
+            # 최초 다운로드 알림
+            global hf_model
+            if hf_model is None:
+                yield f"data: {json.dumps({'type': 'token', 'text': '[시스템 알림: 첫 실행] 백그라운드에서 수 GB의 Hugging Face 모델(Gemma/Qwen)을 다운로드 중입니다. 파이썬 콘솔(터미널)을 열어 다운로드 프로그레스 바를 확인해 주세요. 인터넷 속도에 따라 수 분이 소요됩니다...\\n\\n'})}\n\n"
                 
-        # 4. Stream LLM Conclusion
-        words = llm_conclusion.split(' ')
-        for word in words:
-            if word:
-                yield f"data: {json.dumps({'type': 'token', 'text': word + ' '})}\n\n"
-                time.sleep(0.05)
+            # Load model lazily (blocks here on first run)
+            load_hf_model()
+            
+            # Build prompt
+            messages = [
+                {"role": "system", "content": "You are an intelligent Port Yard Copilot. Answer the question based on the context provided. IMPORTANT: You must always answer in Korean (한국어)."},
+                {"role": "user", "content": f"Context: {chunk_summary}\n\nQuestion: {question}"}
+            ]
+            prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_device)
+            streamer = TextIteratorStreamer(hf_tokenizer, skip_prompt=True, skip_special_tokens=True)
+            
+            generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=256)
+            thread = threading.Thread(target=hf_model.generate, kwargs=generation_kwargs)
+            thread.start()
+            
+            for char in prefix:
+                yield f"data: {json.dumps({'type': 'token', 'text': char})}\n\n"
+                time.sleep(0.01)
                 
-        yield "data: [DONE]\n\n"
+            llm_text = ""
+            for new_text in streamer:
+                llm_text += new_text
+                yield f"data: {json.dumps({'type': 'token', 'text': new_text})}\n\n"
+                
+            if session_id:
+                llm_full_text = prefix + llm_text
+                conn = sqlite3.connect('chat_history.db')
+                c = conn.cursor()
+                c.execute("INSERT INTO messages (session_id, role, content, graph_data, results) VALUES (?, ?, ?, ?, ?)", 
+                          (session_id, "user", question, None, None))
+                c.execute("INSERT INTO messages (session_id, role, content, graph_data, results) VALUES (?, ?, ?, ?, ?)", 
+                          (session_id, "ai", llm_full_text, json.dumps(graph_data), json.dumps(final_results)))
+                conn.commit()
+                conn.close()
+                
+            yield "data: [DONE]\n\n"
+            
+        return Response(generate_hf(), mimetype='text/event-stream')
 
-    return Response(generate(), mimetype='text/event-stream')
+    else:
+        # SQLite DB 저장 로직 (Feature 2)
+        if session_id:
+            llm_full_text = f"[10,000+ 엔진 스캔 완료 (속도: {round(t1 - t0, 4)}ms)] RAG+XAI 분석 결과: {chunk_summary} {llm_conclusion}"
+            conn = sqlite3.connect('chat_history.db')
+            c = conn.cursor()
+            c.execute("INSERT INTO messages (session_id, role, content, graph_data, results) VALUES (?, ?, ?, ?, ?)", 
+                      (session_id, "user", question, None, None))
+            c.execute("INSERT INTO messages (session_id, role, content, graph_data, results) VALUES (?, ?, ?, ?, ?)", 
+                      (session_id, "ai", llm_full_text, json.dumps(graph_data), json.dumps(final_results)))
+            conn.commit()
+            conn.close()
+
+        def generate_mock():
+            scan_time = f"{round(t1 - t0, 4)}"
+            prefix = f"[10,000+ 엔진 스캔 완료 (속도: {scan_time}ms)] RAG+XAI 분석 결과: "
+            
+            # 1. Send Metadata (Graph & Relational)
+            meta_payload = {
+                "type": "metadata",
+                "graph_data": graph_data,
+                "results": final_results,
+                "scan_time": scan_time
+            }
+            yield f"data: {json.dumps(meta_payload)}\n\n"
+            
+            # 2. Stream Prefix
+            for char in prefix:
+                yield f"data: {json.dumps({'type': 'token', 'text': char})}\n\n"
+                time.sleep(0.01)
+                
+            # 3. Stream Chunk Evidence
+            words = chunk_summary.split(' ')
+            for word in words:
+                if word:
+                    yield f"data: {json.dumps({'type': 'token', 'text': word + ' '})}\n\n"
+                    time.sleep(0.02)
+                    
+            # 4. Stream LLM Conclusion
+            words = llm_conclusion.split(' ')
+            for word in words:
+                if word:
+                    yield f"data: {json.dumps({'type': 'token', 'text': word + ' '})}\n\n"
+                    time.sleep(0.05)
+                    
+            yield "data: [DONE]\n\n"
+
+        return Response(generate_mock(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

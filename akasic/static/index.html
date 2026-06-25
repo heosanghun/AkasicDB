@@ -63,7 +63,13 @@
         <main class="main-chat">
             <header class="chat-header glass-header">
                 <h2>Terminal Operations Chat</h2>
-                <div class="badge">AkasicDB Omni-RAG Engine Active</div>
+                <div class="header-actions" style="display: flex; gap: 12px; align-items: center;">
+                    <select id="model-selector" class="modern-select">
+                        <option value="mock">⚡ Omni RAG Engine (Mock - Ultra Fast)</option>
+                        <option value="gemma">🧠 Hugging Face: Gemma (Local GPU)</option>
+                    </select>
+                    <div class="badge">AkasicDB Active</div>
+                </div>
             </header>
             
             <div id="chat-history" class="chat-container">
@@ -134,7 +140,7 @@
         </aside>
 
         <!-- Modals for Fake Actions -->
-        <div id="upload-modal" class="overlay glass-overlay hidden">
+        <div id="upload-modal" class="overlay glass-overlay">
             <div class="modal-box glass">
                 <h2>Data Upload Wizard</h2>
                 <p>Drag & Drop Port SOP PDFs or Images here to automatically Chunk & Embed into the Vector DB.</p>

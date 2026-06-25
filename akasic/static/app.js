@@ -19,21 +19,149 @@ const networkContainer = document.getElementById('network-container');
 const tableBody = document.querySelector('#relational-table tbody');
 const chunkContainer = document.getElementById('chunk-container');
 
+const modelSelector = document.getElementById('model-selector');
+const newChatBtn = document.getElementById('new-chat-btn');
 let network = null;
 let currentMessageId = 0;
+let currentSessionId = null;
 let messageDataMap = {}; // Maps messageId -> { graph_data, results }
 
 // --- Initialization ---
 
-window.onload = () => {
-    // Fake History Items
-    const historyList = document.getElementById('history-list');
-    historyList.innerHTML = `
-        <li class="history-item active">Current Session</li>
-        <li class="history-item">Yesterday: Crane GC05</li>
-        <li class="history-item">06-20: Vessel Alpha Delay</li>
-    `;
+window.onload = async () => {
+    await fetchSessions();
+    if (!currentSessionId) {
+        await createNewSession();
+    }
 };
+
+async function fetchSessions() {
+    try {
+        const res = await fetch('/api/sessions');
+        const sessions = await res.json();
+        const historyList = document.getElementById('history-list');
+        historyList.innerHTML = '';
+        sessions.forEach(s => {
+            const li = document.createElement('li');
+            li.className = `history-item ${s.id === currentSessionId ? 'active' : ''}`;
+            
+            // Format time
+            const d = new Date(s.created_at);
+            const timeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+            
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.justifyContent = 'space-between';
+            wrapper.style.alignItems = 'center';
+            wrapper.style.width = '100%';
+            
+            const textSpan = document.createElement('span');
+            textSpan.innerText = `Session ${s.id} (${timeStr})`;
+            
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '✕';
+            delBtn.className = 'delete-session-btn';
+            delBtn.title = 'Delete Session';
+            delBtn.onclick = async (e) => {
+                e.stopPropagation(); // prevent loading the session
+                if(confirm('Are you sure you want to delete this session?')) {
+                    await fetch(`/api/sessions/${s.id}`, { method: 'DELETE' });
+                    if(currentSessionId === s.id) {
+                        currentSessionId = null;
+                        chatHistoryDiv.innerHTML = '';
+                    }
+                    await fetchSessions();
+                }
+            };
+            
+            wrapper.appendChild(textSpan);
+            wrapper.appendChild(delBtn);
+            
+            li.appendChild(wrapper);
+            li.onclick = () => loadSession(s.id);
+            historyList.appendChild(li);
+        });
+    } catch (e) {
+        console.error("Error fetching sessions:", e);
+    }
+}
+
+async function createNewSession() {
+    try {
+        const res = await fetch('/api/sessions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user: currentUserLabel.innerText}) });
+        const data = await res.json();
+        currentSessionId = data.id;
+        chatHistoryDiv.innerHTML = `
+            <div class="chat-message msg-ai">
+                <span class="msg-avatar">⛵</span>
+                <div class="msg-content">
+                    <p>Welcome to the Intelligent Yard Copilot. Enter a query below to scan 10,000+ real-time synthetic data records.</p>
+                </div>
+            </div>`;
+        messageDataMap = {};
+        analysisDrawer.classList.add('hidden');
+        await fetchSessions();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+newChatBtn.addEventListener('click', createNewSession);
+
+async function loadSession(id) {
+    currentSessionId = id;
+    await fetchSessions(); // To update active class
+    analysisDrawer.classList.add('hidden');
+    messageDataMap = {};
+    chatHistoryDiv.innerHTML = '';
+    
+    try {
+        const res = await fetch(`/api/sessions/${id}/messages`);
+        const messages = await res.json();
+        if (messages.length === 0) {
+            chatHistoryDiv.innerHTML = `<div class="chat-message msg-ai"><span class="msg-avatar">⛵</span><div class="msg-content"><p>Session loaded. Start chatting!</p></div></div>`;
+            return;
+        }
+        
+        messages.forEach(m => {
+            if (m.role === 'user') {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = 'chat-message msg-user';
+                msgDiv.innerHTML = `<span class="msg-avatar">👤</span><div class="msg-content"><p>${m.content}</p></div>`;
+                chatHistoryDiv.appendChild(msgDiv);
+            } else {
+                currentMessageId++;
+                const msgId = currentMessageId;
+                if (m.graph_data) {
+                    messageDataMap[msgId] = { graph_data: m.graph_data, results: m.results };
+                }
+                const msgDiv = document.createElement('div');
+                msgDiv.className = 'chat-message msg-ai';
+                
+                // Highlight speed in text if any
+                let displayHTML = m.content;
+                displayHTML = displayHTML.replace(/\[10,000\+ 엔진 스캔 완료 \(속도: (.*?)\)\]/, '<span class="highlight">[Scan Time: $1]</span>');
+                
+                msgDiv.innerHTML = `
+                    <span class="msg-avatar">⛵</span>
+                    <div class="msg-content-wrapper" style="max-width: 90%;">
+                        <div class="msg-content"><p>${displayHTML}</p></div>
+                        <div class="msg-actions">
+                            <button class="action-btn" onclick="alert('Feedback recorded in SQLite DB!')">👍</button>
+                            <button class="action-btn" onclick="alert('Feedback recorded in SQLite DB!')">👎</button>
+                            <button class="action-btn" onclick="alert('Exporting PDF Report...')">📥 Export</button>
+                            <button class="action-btn view-data-btn" onclick="openAnalysisDrawer(${msgId})">📊 View Evidence</button>
+                        </div>
+                    </div>
+                `;
+                chatHistoryDiv.appendChild(msgDiv);
+            }
+        });
+        scrollToBottom();
+    } catch (e) {
+        console.error(e);
+    }
+}
 
 // --- Modals & Login ---
 
@@ -45,6 +173,27 @@ loginBtn.addEventListener('click', () => {
 
 uploadBtn.addEventListener('click', () => uploadModal.classList.add('active'));
 closeUploadBtn.addEventListener('click', () => uploadModal.classList.remove('active'));
+
+const dropZone = document.querySelector('.drop-zone');
+if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => { 
+        e.preventDefault(); 
+        dropZone.style.borderColor = 'var(--accent)'; 
+        dropZone.style.background = 'rgba(16,163,127,0.1)';
+    });
+    dropZone.addEventListener('dragleave', (e) => { 
+        e.preventDefault(); 
+        dropZone.style.borderColor = 'var(--border-light)'; 
+        dropZone.style.background = 'transparent';
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        alert('문서가 성공적으로 Vector DB에 청킹(Chunking) 되었습니다!');
+        uploadModal.classList.remove('active');
+        dropZone.style.borderColor = 'var(--border-light)';
+        dropZone.style.background = 'transparent';
+    });
+}
 
 // --- Analysis Drawer Toggling ---
 
@@ -129,7 +278,7 @@ async function sendQuery() {
         const response = await fetch('/api/stream_query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: question })
+            body: JSON.stringify({ question: question, session_id: currentSessionId, model: modelSelector.value })
         });
         
         const reader = response.body.getReader();
