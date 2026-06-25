@@ -447,7 +447,7 @@ def stream_query():
             # Build prompt
             messages = [
                 {"role": "system", "content": "You are an intelligent Port Yard Copilot. Answer the question based on the context provided. IMPORTANT: You must always answer in Korean (한국어)."},
-                {"role": "user", "content": f"Context: {chunk_summary}\n\nQuestion: {question}"}
+                {"role": "user", "content": f"Context: {multimodal_prefix}\n{chunk_summary}\n\nQuestion: {question}"}
             ]
             prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_device)

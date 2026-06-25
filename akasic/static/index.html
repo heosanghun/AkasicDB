@@ -83,8 +83,21 @@
 
             <!-- Floating Input Bar -->
             <div class="floating-input-wrapper">
-                <div class="input-container glass-panel">
-                    <input type="text" id="query-input" placeholder="Ask Yard Copilot... (e.g. Why is 3B block rehandling rate high?)" autocomplete="off" />
+                <!-- Media Preview Area -->
+                <div id="media-preview-container" class="media-preview-container hidden">
+                    <button id="remove-media-btn" class="icon-btn remove-media">✕</button>
+                    <div id="media-preview-content"></div>
+                </div>
+
+                <div class="input-container glass-panel" style="display: flex; align-items: center; gap: 8px;">
+                    <input type="file" id="media-upload-input" accept="image/*,video/*,audio/*" style="display: none;" />
+                    <button id="attach-media-btn" class="icon-btn attach-button" title="Attach Image, Audio, or Video">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <input type="text" id="query-input" placeholder="Ask Yard Copilot... (e.g. Why is 3B block rehandling rate high?)" autocomplete="off" style="flex: 1;" />
                     <button id="send-btn" class="send-button">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>

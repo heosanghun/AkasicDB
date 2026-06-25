@@ -26,6 +26,11 @@ let currentMessageId = 0;
 let currentSessionId = null;
 let messageDataMap = {}; // Maps messageId -> { graph_data, results }
 
+// Multimodal State
+let attachedFileData = null; // Base64
+let attachedFileType = null; // image, video, audio
+let attachedFileName = null;
+
 // --- Initialization ---
 
 window.onload = async () => {
@@ -221,12 +226,12 @@ queryInput.addEventListener('keypress', (e) => {
 });
 sendBtn.addEventListener('click', sendQuery);
 
-function appendUserMessage(text) {
+function appendUserMessage(text, html = false) {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'chat-message msg-user';
     msgDiv.innerHTML = `
         <span class="msg-avatar">👤</span>
-        <div class="msg-content"><p>${text}</p></div>
+        <div class="msg-content">${html ? text : `<p>${text}</p>`}</div>
     `;
     chatHistoryDiv.appendChild(msgDiv);
     scrollToBottom();
@@ -263,14 +268,90 @@ function scrollToBottom() {
     chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
 }
 
+// --- Multimodal Logic ---
+
+const attachMediaBtn = document.getElementById('attach-media-btn');
+const mediaUploadInput = document.getElementById('media-upload-input');
+const mediaPreviewContainer = document.getElementById('media-preview-container');
+const mediaPreviewContent = document.getElementById('media-preview-content');
+const removeMediaBtn = document.getElementById('remove-media-btn');
+
+attachMediaBtn.addEventListener('click', () => {
+    mediaUploadInput.click();
+});
+
+mediaUploadInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    attachedFileName = file.name;
+    const type = file.type.split('/')[0];
+    attachedFileType = type;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        attachedFileData = evt.target.result;
+        
+        mediaPreviewContent.innerHTML = '';
+        if (type === 'image') {
+            const img = document.createElement('img');
+            img.src = attachedFileData;
+            mediaPreviewContent.appendChild(img);
+        } else if (type === 'video') {
+            const vid = document.createElement('video');
+            vid.src = attachedFileData;
+            vid.controls = true;
+            mediaPreviewContent.appendChild(vid);
+        } else if (type === 'audio') {
+            const aud = document.createElement('audio');
+            aud.src = attachedFileData;
+            aud.controls = true;
+            mediaPreviewContent.appendChild(aud);
+        } else {
+            mediaPreviewContent.innerHTML = `<div style="color:#94a3b8; padding: 10px; font-size: 12px;">📄 ${file.name}</div>`;
+        }
+        
+        mediaPreviewContainer.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+});
+
+removeMediaBtn.addEventListener('click', () => {
+    attachedFileData = null;
+    attachedFileType = null;
+    attachedFileName = null;
+    mediaUploadInput.value = '';
+    mediaPreviewContainer.classList.add('hidden');
+    mediaPreviewContent.innerHTML = '';
+});
+
 // --- SSE Streaming Fetch ---
 
 async function sendQuery() {
     const question = queryInput.value.trim();
-    if (!question) return;
+    if (!question && !attachedFileData) return;
 
-    appendUserMessage(question);
+    let userHtml = question ? `<p>${question}</p>` : '';
+    if (attachedFileData) {
+        if (attachedFileType === 'image') {
+            userHtml += `<img src="${attachedFileData}" class="chat-media" />`;
+        } else if (attachedFileType === 'video') {
+            userHtml += `<video src="${attachedFileData}" controls class="chat-media"></video>`;
+        } else if (attachedFileType === 'audio') {
+            userHtml += `<audio src="${attachedFileData}" controls class="chat-audio"></audio>`;
+        } else {
+            userHtml += `<p style="color:#14b8a6; font-size: 0.9em;">[Attached: ${attachedFileName}]</p>`;
+        }
+    }
+
+    appendUserMessage(userHtml, true);
     queryInput.value = '';
+    
+    // Save state for payload and reset UI
+    const payloadFile = attachedFileData;
+    const payloadType = attachedFileType;
+    removeMediaBtn.click();
+
     const msgId = appendAIMessageContainer();
     const textContainer = document.getElementById(`ai-text-${msgId}`);
     
@@ -278,7 +359,13 @@ async function sendQuery() {
         const response = await fetch('/api/stream_query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: question, session_id: currentSessionId, model: modelSelector.value })
+            body: JSON.stringify({ 
+                question: question || "첨부파일을 분석해 줘.", 
+                session_id: currentSessionId, 
+                model: modelSelector.value,
+                file_data: payloadFile,
+                file_type: payloadType
+            })
         });
         
         const reader = response.body.getReader();
