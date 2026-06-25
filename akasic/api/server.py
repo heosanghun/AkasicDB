@@ -1,11 +1,8 @@
 import time
 import os
 
-# Set Hugging Face cache directory to E: drive due to C: drive space constraints
-os.environ["HF_HOME"] = r"E:\AI\huggingface_cache"
-
-# Force Hugging Face to download models to the E: drive
-os.environ["HF_HOME"] = "E:\AI\hf_cache"
+# Set Hugging Face cache directory to C: drive due to E: drive absence
+os.environ["HF_HOME"] = r"c:\Project\AkasicDB\.cache\huggingface_cache"
 
 import sqlite3
 import json
@@ -28,19 +25,17 @@ def load_hf_model():
     global hf_model, hf_tokenizer
     if hf_model is None:
         from transformers import AutoModelForCausalLM, AutoProcessor
-        try:
-            model_name = "google/gemma-4-e4b-it"
-            print(f"Loading Hugging Face Multimodal Model: {model_name} on {hf_device}...")
-            hf_tokenizer = AutoProcessor.from_pretrained(model_name)
-            hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
-        except Exception as e:
-            print(f"Gemma 4 load failed: {e}")
-            model_name = "Qwen/Qwen1.5-1.8B-Chat"
-            from transformers import AutoTokenizer
-            print(f"Falling back to {model_name}...")
-            hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
-            hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
-        print("Model loading complete!")
+        model_name = "google/gemma-4-e4b-it"
+        while True:
+            try:
+                print(f"Loading Hugging Face Multimodal Model: {model_name} on {hf_device}...")
+                hf_tokenizer = AutoProcessor.from_pretrained(model_name)
+                hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
+                print("Model loading complete!")
+                break
+            except Exception as e:
+                print(f"Gemma 4 load failed: {e}. Retrying in 10 seconds (Qwen fallback disabled)...")
+                time.sleep(10)
 
 # Add parent directory to path to import akasic modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -480,7 +475,7 @@ def stream_query():
                     {"role": "user", "content": user_content}
                 ]
                 prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_device)
+                inputs = hf_tokenizer(text=prompt, return_tensors="pt").to(hf_device)
                 
             streamer = TextIteratorStreamer(hf_tokenizer, skip_prompt=True, skip_special_tokens=True)
             

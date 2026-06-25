@@ -1,5 +1,5 @@
 import os
-os.environ["HF_HOME"] = r"E:\AI\huggingface_cache"
+os.environ["HF_HOME"] = r"c:\Project\AkasicDB\.cache\huggingface_cache"
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 import threading
