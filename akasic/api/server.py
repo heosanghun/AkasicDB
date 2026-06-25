@@ -9,6 +9,7 @@ import json
 import threading
 from collections import defaultdict
 from flask import Flask, request, jsonify, send_from_directory, Response
+from flask_cors import CORS
 import sys
 import random
 
@@ -46,6 +47,7 @@ from akasic.storage.vector_store import VectorStore
 from akasic.query.planner import QueryPlanner
 
 app = Flask(__name__, static_folder='../static', static_url_path='/static')
+CORS(app)
 
 # Initialize SQLite DB (Feature 2: History DB)
 def init_db():

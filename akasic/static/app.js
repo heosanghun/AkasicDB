@@ -1,5 +1,16 @@
 /* JavaScript for Chat-Centric UI & SSE Streaming */
 
+// Intercept fetch calls for Cloudflare Pages to point to local Python API server
+if (window.location.origin.includes('pages.dev')) {
+    const originalFetch = window.fetch;
+    window.fetch = function (input, init) {
+        if (typeof input === 'string' && input.startsWith('/api/')) {
+            input = 'http://localhost:5000' + input;
+        }
+        return originalFetch(input, init);
+    };
+}
+
 // DOM Elements
 const loginOverlay = document.getElementById('login-overlay');
 const loginBtn = document.getElementById('login-btn');
