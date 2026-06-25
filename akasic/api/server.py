@@ -4,6 +4,9 @@ import os
 # Set Hugging Face cache directory to E: drive due to C: drive space constraints
 os.environ["HF_HOME"] = r"E:\AI\huggingface_cache"
 
+# Force Hugging Face to download models to the E: drive
+os.environ["HF_HOME"] = "E:\AI\hf_cache"
+
 import sqlite3
 import json
 import threading
@@ -24,15 +27,16 @@ hf_tokenizer = None
 def load_hf_model():
     global hf_model, hf_tokenizer
     if hf_model is None:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoProcessor
         try:
-            model_name = "google/gemma-1.1-2b-it"
-            print(f"Loading Hugging Face Model: {model_name} on {hf_device}...")
-            hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model_name = "google/gemma-4-e4b-it"
+            print(f"Loading Hugging Face Multimodal Model: {model_name} on {hf_device}...")
+            hf_tokenizer = AutoProcessor.from_pretrained(model_name)
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
         except Exception as e:
-            print(f"Gemma load failed (might need HF token): {e}")
+            print(f"Gemma 4 load failed: {e}")
             model_name = "Qwen/Qwen1.5-1.8B-Chat"
+            from transformers import AutoTokenizer
             print(f"Falling back to {model_name}...")
             hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16 if hf_device=="cuda" else torch.float32, low_cpu_mem_usage=True).to(hf_device)
@@ -444,13 +448,40 @@ def stream_query():
             # Load model lazily (blocks here on first run)
             load_hf_model()
             
+            # Native Multimodal VLM Processing (Option B)
+            file_data = data.get("file_data")
+            file_type = data.get("file_type")
+            image = None
+            
+            if file_data and file_type == 'image':
+                import base64
+                from io import BytesIO
+                from PIL import Image
+                try:
+                    header, b64_str = file_data.split(',', 1)
+                    img_bytes = base64.b64decode(b64_str)
+                    image = Image.open(BytesIO(img_bytes)).convert("RGB")
+                except Exception as e:
+                    print(f"Image decode failed: {e}")
+            
             # Build prompt
-            messages = [
-                {"role": "system", "content": "You are an intelligent Port Yard Copilot. Answer the question based on the context provided. IMPORTANT: You must always answer in Korean (한국어)."},
-                {"role": "user", "content": f"Context: {multimodal_prefix}\n{chunk_summary}\n\nQuestion: {question}"}
-            ]
-            prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_device)
+            user_content = f"Context: {chunk_summary}\n\nQuestion: {question}"
+            if image:
+                # Gemma 4 Multimodal Template
+                messages = [
+                    {"role": "system", "content": "You are an intelligent Port Yard Copilot. Answer the question based on the context provided. IMPORTANT: You must always answer in Korean (한국어)."},
+                    {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": user_content}]}
+                ]
+                prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = hf_tokenizer(text=prompt, images=image, return_tensors="pt").to(hf_device)
+            else:
+                messages = [
+                    {"role": "system", "content": "You are an intelligent Port Yard Copilot. Answer the question based on the context provided. IMPORTANT: You must always answer in Korean (한국어)."},
+                    {"role": "user", "content": user_content}
+                ]
+                prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_device)
+                
             streamer = TextIteratorStreamer(hf_tokenizer, skip_prompt=True, skip_special_tokens=True)
             
             generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=256)
