@@ -481,7 +481,7 @@ def stream_query():
                 
             streamer = TextIteratorStreamer(hf_tokenizer, skip_prompt=True, skip_special_tokens=True)
             
-            generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=256)
+            generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=1024)
             thread = threading.Thread(target=hf_model.generate, kwargs=generation_kwargs)
             thread.start()
             
