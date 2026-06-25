@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AkasicDB | Intelligent Yard Copilot</title>
+    <!-- Premium Font: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Vis.js for Network Graphs -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- 1. Login Overlay (Feature 4) -->
+    <div id="login-overlay" class="overlay glass-overlay active">
+        <div class="login-box glass">
+            <div class="logo">
+                <span class="logo-icon">⛵</span>
+                <h2>AkasicDB Secure Login</h2>
+            </div>
+            <p class="subtitle">Intelligent Yard Copilot Access</p>
+            <input type="text" id="username" placeholder="Employee ID" class="modern-input" autocomplete="off" />
+            <input type="password" id="password" placeholder="Password" class="modern-input" />
+            <button id="login-btn" class="primary-btn">Sign In</button>
+        </div>
+    </div>
+
+    <div class="app-wrapper">
+        <!-- 2. Left Sidebar (Features 1 & 2) -->
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">⛵</span>
+                    <h1>Yard Copilot</h1>
+                </div>
+            </div>
+            <div class="new-chat-btn-wrapper">
+                <button id="new-chat-btn" class="primary-btn outline-btn">+ New Session</button>
+            </div>
+            <div class="sidebar-menu">
+                <h3>Chat History (SQLite)</h3>
+                <ul id="history-list" class="history-list">
+                    <!-- History items will be populated here -->
+                </ul>
+            </div>
+            <div class="sidebar-footer">
+                <button id="upload-data-btn" class="action-btn upload-btn">
+                    <span>📁 Data Upload (Wizard)</span>
+                </button>
+                <div class="user-profile">
+                    <div class="avatar">U</div>
+                    <span id="current-user">Operator</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 3. Main Chat Interface -->
+        <main class="main-chat">
+            <header class="chat-header glass-header">
+                <h2>Terminal Operations Chat</h2>
+                <div class="badge">AkasicDB Omni-RAG Engine Active</div>
+            </header>
+            
+            <div id="chat-history" class="chat-container">
+                <div class="chat-message msg-ai">
+                    <span class="msg-avatar">⛵</span>
+                    <div class="msg-content">
+                        <p>Welcome to the Intelligent Yard Copilot. Enter a query below to scan 10,000+ real-time synthetic data records.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floating Input Bar -->
+            <div class="floating-input-wrapper">
+                <div class="input-container glass-panel">
+                    <input type="text" id="query-input" placeholder="Ask Yard Copilot... (e.g. Why is 3B block rehandling rate high?)" autocomplete="off" />
+                    <button id="send-btn" class="send-button">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 4. Expandable Analysis Drawer -->
+        <aside id="analysis-drawer" class="analysis-drawer glass-panel hidden">
+            <div class="drawer-header">
+                <h2>📊 Analysis Evidence</h2>
+                <button id="close-drawer-btn" class="icon-btn">✕</button>
+            </div>
+            
+            <div class="drawer-content">
+                <!-- Graph View -->
+                <section class="drawer-section">
+                    <h3>Multi-hop Topology</h3>
+                    <div id="network-container" class="drawer-box"></div>
+                </section>
+
+                <!-- Relational View -->
+                <section class="drawer-section">
+                    <h3>Filtered Entities</h3>
+                    <div class="table-wrapper drawer-box">
+                        <table id="relational-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Dynamic rows -->
+                                <tr><td colspan="3" class="empty-state">No data</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Chunk View -->
+                <section class="drawer-section">
+                    <h3>Multimodal Evidence</h3>
+                    <div id="chunk-container" class="chunk-list drawer-box">
+                        <!-- Dynamic chunks -->
+                        <div class="empty-state">No results found.</div>
+                    </div>
+                </section>
+            </div>
+        </aside>
+
+        <!-- Modals for Fake Actions -->
+        <div id="upload-modal" class="overlay glass-overlay hidden">
+            <div class="modal-box glass">
+                <h2>Data Upload Wizard</h2>
+                <p>Drag & Drop Port SOP PDFs or Images here to automatically Chunk & Embed into the Vector DB.</p>
+                <div class="drop-zone">Drop files here</div>
+                <button id="close-upload-btn" class="primary-btn">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
